@@ -1,0 +1,533 @@
+<!--
+    Copyright 2025 Outpacr BV
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+    
+    ## Third-party components
+
+	This project uses [marked.js](https://github.com/markedjs/marked), licensed under the MIT License:
+	
+	© 2011-2024, Christopher Jeffrey and contributors
+	
+	https://github.com/markedjs/marked/blob/master/LICENSE
+    
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Outpacr AI Chatbot</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div id="outpacr-chatbot-container"></div>
+
+    <script>
+        const chatbotContainer = document.getElementById('outpacr-chatbot-container');
+        const shadowRoot = chatbotContainer.attachShadow({ mode: 'open' });
+
+        let socket;
+        let welcomeMessageSent = false;
+        let conversationHistory = [];
+        let messageQueue = []; // Queue for outgoing messages
+        let conversationId = null; // Wordt door de backend gezet
+
+        const PREPROMPT = "";
+
+        const API_KEY = "YOUR LOCAL AI API KEY";
+        const WS_URL = `const WS_URL = "wss://your-ai-backend.example.com/ws/project/<project-id>/converse_stream?api_key=<your-api-key>"{API_KEY}`;
+
+        shadowRoot.innerHTML = `
+            <style>
+                :host {
+                    all: initial;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                }
+                .chat-bubble {
+                    position: relative; 
+                }
+                .chat-bubble p {
+                    margin-top: 0;
+                    margin-bottom: 1em;
+                }
+                .chat-bubble p:last-child {
+                    margin-bottom: 0;
+                }
+                #toggle-button {
+                    background: black;
+                    color: white;
+                    border: none;
+                    padding: 12px 20px;
+                    border-radius: 24px;
+                    cursor: pointer;
+                    font-family: sans-serif;
+                    font-size: 16px;
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+                }
+                
+                	#outpacr-chat-toggle {
+			    	position: fixed !important;
+			    	bottom: 20px;
+   					right: 20px;
+    				z-index: 10000;
+    				pointer-events: all !important;
+				}
+
+                
+                 .chat-bubble strong { font-weight: bold; }
+                 .chat-bubble em { font-style: italic; }
+
+                 /* Styling voor code-blokken */
+                .chat-bubble pre {
+                    background-color: #2d2d2d;
+                    color: #f8f8f2;
+                    padding: 1em;
+                    border-radius: 8px;
+                    overflow-x: auto;
+                    position: relative;
+                }
+                .chat-bubble pre code {
+                    font-family: 'Courier New', Courier, monospace;
+                    font-size: 14px;
+                    background-color: transparent;
+                    padding: 0;
+                }
+                .chat-bubble p > code, .chat-bubble li > code {
+                    background-color: #e0e0e0;
+                    padding: 2px 5px;
+                    border-radius: 4px;
+                    font-size: 0.9em;
+                    font-family: 'Courier New', Courier, monospace;
+                }
+                .copy-code-btn {
+                    position: absolute;
+                    top: 8px;
+                    right: 8px;
+                    background: #555;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 12px;
+                    padding: 4px 8px;
+                    opacity: 0;
+                    transition: opacity 0.2s;
+                }
+                .chat-bubble pre:hover .copy-code-btn {
+                    opacity: 1;
+                }
+
+
+                 /* Styles for feedback buttons */
+                .feedback-container {
+                    display: flex;
+                    gap: 8px;
+                    margin-top: 8px;
+                    justify-content: flex-start;
+                }
+
+                .feedback-btn {
+                    cursor: pointer;
+                    border: none;
+                    background: none;
+                    font-size: 16px;
+                    opacity: 0.6;
+                    transition: all 0.2s ease-in-out;
+                }
+
+                .feedback-btn:hover {
+                    opacity: 1;
+                    transform: scale(1.1);
+                }
+
+                .feedback-btn.selected {
+                    opacity: 1;
+                    transform: scale(1.1);
+                }
+                
+                .feedback-btn:disabled {
+                    cursor: default;
+                    opacity: 0.5;
+                }
+                .chat-footer a {
+				    color: inherit;
+				    text-decoration: none;
+				    font-weight: bold;
+				}
+            </style>
+            <div id="outpacr-chat-toggle" style="position: fixed; bottom: 20px; right: 20px; z-index: 10000;">
+                <button id="toggle-button">💬 AI Assistant</button>
+            </div>
+            <div id="outpacr-chat-popup" style="display: none; position: fixed; inset: 0; margin: auto; right: 20px; width: 80vw; height: 80vh; max-width: 95vw; max-height: 95vh; background: white; border-radius: 16px; box-shadow: 0 5px 20px rgba(0,0,0,0.15); z-index: 9999; flex-direction: column;">
+                
+                
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px; border-bottom: 1px solid #eee; background: #f9f9f9;">
+    <strong>Outpacr AI Assistant</strong>
+    <button id="reset-button" title="Reset conversation" style="background: none; border: none; font-size: 18px; cursor: pointer;">⚙️</button>
+</div>
+
+                
+                
+                <div id="chat-output" style="flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px;"></div>
+                <div style="display: flex; border-top: 1px solid #eee;">
+                    <input id="chat-input" type="text" placeholder="Type your question..." style="flex: 1; padding: 16px; border: none; outline: none;" />
+                    <button id="send-button" style="padding: 0 20px; background: black; color: white; border: none; cursor: pointer;">➤</button>
+                </div>
+                <!-- AANGEPAST: 'Powered by' footer toegevoegd -->
+
+				<div class="chat-footer" style="text-align: center; padding: 8px; font-size: 12px; color: #aaa; background-color: #f9f9f9; border-top: 1px solid #eee;">
+				    
+				    Powered by <img src="https://demo.outpacr.com/Oupacr_logo_temp.png" alt="outpacr" style="height: 14px; vertical-align: middle; margin-right: 4px;" /><strong><a href="https://outpacr.com/">outpacr</a></strong>
+				</div>
+            </div>
+        `;
+
+        const chatPopup = shadowRoot.getElementById("outpacr-chat-popup");
+        const chatOutput = shadowRoot.getElementById("chat-output");
+        const chatInput = shadowRoot.getElementById("chat-input");
+        const sendButton = shadowRoot.getElementById("send-button");
+        const toggleButton = shadowRoot.getElementById("toggle-button");
+        const resetButton = shadowRoot.getElementById("reset-button");
+resetButton.addEventListener('click', () => {
+    resetConversation();
+});
+
+
+        toggleButton.addEventListener('click', () => {
+            const isHidden = chatPopup.style.display === "none";
+            chatPopup.style.display = isHidden ? "flex" : "none";
+            if (isHidden) {
+                if (!welcomeMessageSent) {
+                    appendSystemMessage("Hi! How can I help you today? \n\nStel je vraag gerust ook in het Nederlands!");
+                    welcomeMessageSent = true;
+                }
+                initSocket();
+                setTimeout(() => chatInput.focus(), 100);
+            }
+        });
+
+        sendButton.addEventListener('click', sendToAI);
+        chatInput.addEventListener("keydown", e => {
+            if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                sendToAI();
+            }
+        });
+
+        function initSocket() {
+            if (socket && socket.readyState !== WebSocket.CLOSED) {
+                return;
+            }
+            console.log("A new WebSocket connection is being established...");
+            socket = new WebSocket(WS_URL);
+
+            socket.onopen = () => {
+                console.log("✅ Connection successfully opened.");
+                processQueue();
+            };
+
+            socket.onmessage = handleStreamingMessage;
+
+            socket.onerror = err => {
+                console.error("❌ WebSocket error:", err);
+                appendSystemMessage("Connection error with the AI.");
+                socket = null;
+            };
+
+            socket.onclose = event => {
+                console.log(`🔒 Connection closed. Code: ${event.code}`);
+                socket = null;
+            };
+        }
+
+        function sendToAI() {
+            const question = chatInput.value.trim();
+            if (!question) return;
+
+            appendBubble(question, "user");
+            chatInput.value = "";
+
+            const historyString = conversationHistory
+                .slice(-10) 
+                .map(turn => `${turn.role === 'user' ? 'User' : 'Assistant'}: ${turn.content}`)
+                .join('\n');
+            
+            const fullContext = `${PREPROMPT}\n\nPREVIOUS CONVERSATION:\n${historyString}`;
+
+            const prompt = {
+                query: question,
+                context: fullContext,
+                conversation: [], 
+                conversation_id: conversationId
+            };
+            
+            conversationHistory.push({ role: "user", content: question });
+
+            messageQueue.push(prompt);
+            processQueue();
+        }
+
+        function processQueue() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                while (messageQueue.length > 0) {
+                    const message = messageQueue.shift();
+                    console.log("Message is being dequeued and sent:", message);
+                    socket.send(JSON.stringify(message));
+                }
+            } else {
+                console.log("Socket not open. Initiating connection.");
+                initSocket();
+            }
+        }
+
+        function appendBubble(text, role) {
+            const wrapper = document.createElement("div");
+            wrapper.style.display = 'flex';
+            wrapper.style.flexDirection = 'column';
+            wrapper.style.alignItems = role === 'ai' ? 'flex-start' : 'flex-end';
+            
+            const bubble = document.createElement("div");
+            bubble.className = 'chat-bubble';
+            bubble.style.maxWidth = '85%';
+            bubble.style.padding = '10px 14px';
+            bubble.style.borderRadius = '18px';
+            bubble.style.background = role === 'ai' ? '#f1f1f1' : '#000';
+            bubble.style.color = role === 'ai' ? '#000' : '#fff';
+            
+            if (window.marked) {
+                bubble.innerHTML = marked.parse(text);
+            } else {
+                bubble.textContent = text;
+            }
+
+            if (role === 'ai') {
+                const codeBlocks = bubble.querySelectorAll('pre');
+                codeBlocks.forEach(block => {
+                    const copyBtn = document.createElement('button');
+                    copyBtn.innerHTML = 'Copy';
+                    copyBtn.className = 'copy-code-btn';
+                    copyBtn.onclick = () => {
+                        const codeToCopy = block.querySelector('code').textContent;
+                        navigator.clipboard.writeText(codeToCopy).then(() => {
+                            copyBtn.textContent = 'Copied!';
+                            setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+                        }).catch(err => console.error('Failed to copy: ', err));
+                    };
+                    block.appendChild(copyBtn);
+                });
+            }
+
+            wrapper.appendChild(bubble);
+            chatOutput.appendChild(wrapper);
+            chatOutput.scrollTop = chatOutput.scrollHeight;
+            return wrapper;
+        }
+
+        function appendSystemMessage(message) {
+            const div = document.createElement("div");
+            div.style.textAlign = "center";
+            div.style.color = "#888";
+            div.style.fontSize = "12px";
+            div.style.padding = "8px 0";
+            div.innerHTML = message.replace(/\n/g, '<br>');
+            chatOutput.appendChild(div);
+            chatOutput.scrollTop = chatOutput.scrollHeight;
+        }
+
+        function cleanMessage(fullRawText, bubbleWrapper) {
+            let processedText = fullRawText;
+
+            if (!bubbleWrapper.dataset.documentName) {
+                const docNameRegex = /document(?::)?\s*"(.*?)"/i;
+                const docNameMatch = processedText.match(docNameRegex);
+                if (docNameMatch && docNameMatch[1]) {
+                    const cleanName = docNameMatch[1].replace(/",\s*Chunk\s*\d+/i, '').trim();
+                    bubbleWrapper.dataset.documentName = cleanName;
+                }
+            }
+
+            const prefixRemovalRegex = /(?:Antwoord|Based on the provided context)\s*\(.*?\)[,:]?\s*/is;
+            processedText = processedText.replace(prefixRemovalRegex, '');
+            processedText = processedText.replace(/^\s*([-*_]){3,}\s*/, '');
+            const anySourceRegex = /\(?(?:Bron|Source|Dit staat beschreven in):\s*.*(?:document|Chunk).*?\)?\.?\s*$/gim;
+            processedText = processedText.replace(anySourceRegex, '');
+            
+            return processedText.trim();
+        }
+
+        function addFeedbackButtons(bubbleWrapper) {
+            const feedbackContainer = document.createElement('div');
+            feedbackContainer.className = 'feedback-container';
+
+            const thumbUp = document.createElement('button');
+            thumbUp.innerHTML = '👍';
+            thumbUp.className = 'feedback-btn';
+            thumbUp.onclick = () => handleFeedbackClick(thumbUp, 'up', bubbleWrapper);
+
+            const thumbDown = document.createElement('button');
+            thumbDown.innerHTML = '👎';
+            thumbDown.className = 'feedback-btn';
+            thumbDown.onclick = () => handleFeedbackClick(thumbDown, 'down', bubbleWrapper);
+            
+            const copyButton = document.createElement('button');
+            copyButton.innerHTML = '📋';
+            copyButton.className = 'feedback-btn';
+            copyButton.title = 'Copy to clipboard';
+            copyButton.onclick = () => {
+                const originalBubble = bubbleWrapper.querySelector('.chat-bubble');
+                if (!originalBubble) return;
+                
+                const textToCopy = originalBubble.dataset.rawText || originalBubble.textContent;
+                
+                const tempTextarea = document.createElement('textarea');
+                tempTextarea.value = textToCopy;
+                shadowRoot.appendChild(tempTextarea);
+                tempTextarea.select();
+                document.execCommand('copy');
+                shadowRoot.removeChild(tempTextarea);
+
+                copyButton.innerHTML = '✅';
+                setTimeout(() => {
+                    copyButton.innerHTML = '📋';
+                }, 1500);
+            };
+
+            feedbackContainer.append(thumbUp, thumbDown, copyButton);
+            bubbleWrapper.appendChild(feedbackContainer);
+        }
+
+        function handleFeedbackClick(clickedButton, feedbackType, bubbleWrapper) {
+            const feedbackContainer = clickedButton.parentElement;
+            if (!feedbackContainer) return;
+            
+            const thumbButtons = feedbackContainer.querySelectorAll('.feedback-btn');
+            thumbButtons.forEach(btn => {
+                if (btn.innerHTML === '👍' || btn.innerHTML === '👎') {
+                    btn.disabled = true;
+                }
+            });
+            
+            clickedButton.classList.add('selected');
+
+            const originalBubble = bubbleWrapper.querySelector('.chat-bubble');
+            if (!originalBubble) return;
+            
+            const messageText = originalBubble.dataset.rawText || originalBubble.textContent;
+            
+            console.log(`--- FEEDBACK RECEIVED ---`);
+            console.log(`Type: ${feedbackType === 'up' ? 'Positive' : 'Negative'}`);
+            console.log(`Message: "${messageText}"`);
+            console.log(`--------------------------`);
+
+            const feedbackMessage = appendSystemMessage('Thanks for your feedback!');
+            setTimeout(() => {
+                thumbButtons.forEach(btn => {
+                   if (btn.innerHTML === '👍' || btn.innerHTML === '👎') {
+                       btn.style.display = 'none';
+                   }
+                });
+                if(feedbackMessage) feedbackMessage.remove();
+            }, 2000);
+        }
+
+function resetConversation() {
+    conversationHistory = [];
+    conversationId = null;
+
+    // Wis de inhoud van het chatvenster
+    while (chatOutput.firstChild) {
+        chatOutput.removeChild(chatOutput.firstChild);
+    }
+
+    appendSystemMessage("✅ Chat resetted");
+}
+
+
+
+        function handleStreamingMessage(event) {
+            try {
+                const data = JSON.parse(event.data);
+                const messageChunk = data.message;
+                if (!messageChunk) return;
+
+                let wrapper = chatOutput.querySelector('.is-streaming');
+
+                if (messageChunk === '[END]') {
+                    if (wrapper) {
+                        wrapper.classList.remove('is-streaming');
+                        const bubble = wrapper.querySelector('.chat-bubble');
+                        if (bubble) {
+                            const fullRawText = bubble.dataset.rawText || '';
+                            let cleanedFinalText = cleanMessage(fullRawText, wrapper);
+                            
+                            const storedDocName = wrapper.dataset.documentName;
+                            if (storedDocName) {
+                                cleanedFinalText += `\n\n(Source: "${storedDocName}")`;
+                            }
+                            
+                            bubble.dataset.rawText = cleanedFinalText; 
+                            if (window.marked) {
+                                bubble.innerHTML = marked.parse(cleanedFinalText);
+                                const codeBlocks = bubble.querySelectorAll('pre');
+                                codeBlocks.forEach(block => {
+                                    const copyBtn = document.createElement('button');
+                                    copyBtn.innerHTML = 'Copy';
+                                    copyBtn.className = 'copy-code-btn';
+                                    copyBtn.onclick = () => {
+                                        const codeToCopy = block.querySelector('code').textContent;
+                                        navigator.clipboard.writeText(codeToCopy).then(() => {
+                                            copyBtn.textContent = 'Copied!';
+                                            setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+                                        }).catch(err => console.error('Failed to copy: ', err));
+                                    };
+                                    block.appendChild(copyBtn);
+                                });
+                            } else {
+                                bubble.textContent = cleanedFinalText;
+                            }
+                            conversationHistory.push({ role: "assistant", content: cleanedFinalText.trim() });
+                            addFeedbackButtons(wrapper);
+                        }
+                         delete wrapper.dataset.documentName;
+                    }
+                    if (data.conversation_id) {
+                        conversationId = data.conversation_id;
+                        console.log(`Conversation ID received from backend and updated: ${conversationId}`);
+                    }
+                    return;
+                }
+
+                if (!wrapper) {
+                    wrapper = appendBubble('', 'ai');
+                    wrapper.classList.add('is-streaming');
+                }
+
+                const bubble = wrapper.querySelector('.chat-bubble');
+                const raw = (bubble.dataset.rawText || '') + messageChunk;
+                bubble.dataset.rawText = raw;
+                
+                if (window.marked) {
+                    bubble.innerHTML = marked.parse(raw);
+                } else {
+                    bubble.textContent = raw;
+                }
+
+                chatOutput.scrollTop = chatOutput.scrollHeight;
+            } catch (e) {
+                console.error("❌ Error processing message:", e);
+            }
+        }
+    </script>
+</body>
+</html>
