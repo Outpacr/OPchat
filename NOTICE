@@ -1,0 +1,5 @@
+This project includes the following third-party components:
+
+- marked.js (https://github.com/markedjs/marked)
+  License: MIT
+  See: THIRD_PARTY_LICENSES/marked.LICENSE
