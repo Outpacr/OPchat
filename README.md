@@ -1,10 +1,9 @@
 # OPchat
 
-A privacy-friendly multilingual AI chatbot UI, connected via WebSocket to a DeepSeek R1 and Weaviate backend.
+A privacy-friendly multilingual AI chatbot UI, connected via WebSocket to a local large language model and RAG backend.
 
 ## Features
 
-- Proactive welcome message
 - WebSocket streaming
 - Local data rendering via `marked.js`
 - Copy-to-clipboard, feedback buttons
